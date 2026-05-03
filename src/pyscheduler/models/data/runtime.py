@@ -77,25 +77,84 @@ class Task(BaseModel[s.Task]):
 
 
 @dataclass(kw_only=True)
-class PendingTask(BaseModel[s.PendingTask]):
-    """Data of a pending task."""
+class QueuedTask(BaseModel[s.QueuedTask]):
+    """Data of a queued task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
 
     @override
-    def serialize(self) -> s.PendingTask:
+    def serialize(self) -> s.QueuedTask:
         return {
             "task": self.task.serialize(),
-            "scheduled": isostringify(self.scheduled),
+            "enqueued": isostringify(self.enqueued),
         }
 
     @classmethod
     @override
-    def deserialize(cls, data: s.PendingTask) -> Self:
+    def deserialize(cls, data: s.QueuedTask) -> Self:
         return cls(
             task=Task.deserialize(data["task"]),
-            scheduled=isoparse(data["scheduled"]),
+            enqueued=isoparse(data["enqueued"]),
+        )
+
+
+@dataclass(kw_only=True)
+class WaitingTask(BaseModel[s.WaitingTask]):
+    """Data of a waiting task."""
+
+    task: Task
+    enqueued: datetime
+    dequeued: datetime
+
+    @override
+    def serialize(self) -> s.WaitingTask:
+        return {
+            "task": self.task.serialize(),
+            "enqueued": isostringify(self.enqueued),
+            "dequeued": isostringify(self.dequeued),
+        }
+
+    @classmethod
+    @override
+    def deserialize(cls, data: s.WaitingTask) -> Self:
+        return cls(
+            task=Task.deserialize(data["task"]),
+            enqueued=isoparse(data["enqueued"]),
+            dequeued=isoparse(data["dequeued"]),
+        )
+
+
+@dataclass(kw_only=True)
+class SleepingTask(BaseModel[s.SleepingTask]):
+    """Data of a sleeping task."""
+
+    task: Task
+    enqueued: datetime
+    dequeued: datetime | None
+    slept: datetime
+
+    @override
+    def serialize(self) -> s.SleepingTask:
+        return {
+            "task": self.task.serialize(),
+            "enqueued": isostringify(self.enqueued),
+            "dequeued": isostringify(self.dequeued)
+            if self.dequeued is not None
+            else None,
+            "slept": isostringify(self.slept),
+        }
+
+    @classmethod
+    @override
+    def deserialize(cls, data: s.SleepingTask) -> Self:
+        return cls(
+            task=Task.deserialize(data["task"]),
+            enqueued=isoparse(data["enqueued"]),
+            dequeued=isoparse(data["dequeued"])
+            if data["dequeued"] is not None
+            else None,
+            slept=isoparse(data["slept"]),
         )
 
 
@@ -104,14 +163,16 @@ class RunningTask(BaseModel[s.RunningTask]):
     """Data of a running task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+    dequeued: datetime
     started: datetime
 
     @override
     def serialize(self) -> s.RunningTask:
         return {
             "task": self.task.serialize(),
-            "scheduled": isostringify(self.scheduled),
+            "enqueued": isostringify(self.enqueued),
+            "dequeued": isostringify(self.dequeued),
             "started": isostringify(self.started),
         }
 
@@ -120,7 +181,8 @@ class RunningTask(BaseModel[s.RunningTask]):
     def deserialize(cls, data: s.RunningTask) -> Self:
         return cls(
             task=Task.deserialize(data["task"]),
-            scheduled=isoparse(data["scheduled"]),
+            enqueued=isoparse(data["enqueued"]),
+            dequeued=isoparse(data["dequeued"]),
             started=isoparse(data["started"]),
         )
 
@@ -130,7 +192,8 @@ class CancelledTask(BaseModel[s.CancelledTask]):
     """Data of a cancelled task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+    dequeued: datetime
     started: datetime | None
     cancelled: datetime
 
@@ -138,7 +201,8 @@ class CancelledTask(BaseModel[s.CancelledTask]):
     def serialize(self) -> s.CancelledTask:
         return {
             "task": self.task.serialize(),
-            "scheduled": isostringify(self.scheduled),
+            "enqueued": isostringify(self.enqueued),
+            "dequeued": isostringify(self.dequeued),
             "started": isostringify(self.started) if self.started is not None else None,
             "cancelled": isostringify(self.cancelled),
         }
@@ -148,7 +212,8 @@ class CancelledTask(BaseModel[s.CancelledTask]):
     def deserialize(cls, data: s.CancelledTask) -> Self:
         return cls(
             task=Task.deserialize(data["task"]),
-            scheduled=isoparse(data["scheduled"]),
+            enqueued=isoparse(data["enqueued"]),
+            dequeued=isoparse(data["dequeued"]),
             started=(
                 isoparse(data["started"]) if data["started"] is not None else None
             ),
@@ -161,8 +226,9 @@ class FailedTask(BaseModel[s.FailedTask]):
     """Data of a failed task."""
 
     task: Task
-    scheduled: datetime
-    started: datetime
+    enqueued: datetime
+    dequeued: datetime
+    started: datetime | None
     failed: datetime
     error: str
 
@@ -170,8 +236,9 @@ class FailedTask(BaseModel[s.FailedTask]):
     def serialize(self) -> s.FailedTask:
         return {
             "task": self.task.serialize(),
-            "scheduled": isostringify(self.scheduled),
-            "started": isostringify(self.started),
+            "enqueued": isostringify(self.enqueued),
+            "dequeued": isostringify(self.dequeued),
+            "started": isostringify(self.started) if self.started is not None else None,
             "failed": isostringify(self.failed),
             "error": self.error,
         }
@@ -181,8 +248,9 @@ class FailedTask(BaseModel[s.FailedTask]):
     def deserialize(cls, data: s.FailedTask) -> Self:
         return cls(
             task=Task.deserialize(data["task"]),
-            scheduled=isoparse(data["scheduled"]),
-            started=isoparse(data["started"]),
+            enqueued=isoparse(data["enqueued"]),
+            dequeued=isoparse(data["dequeued"]),
+            started=isoparse(data["started"]) if data["started"] is not None else None,
             failed=isoparse(data["failed"]),
             error=data["error"],
         )
@@ -193,7 +261,8 @@ class CompletedTask(BaseModel[s.CompletedTask]):
     """Data of a completed task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+    dequeued: datetime
     started: datetime
     completed: datetime
     result: t.JSON
@@ -202,7 +271,8 @@ class CompletedTask(BaseModel[s.CompletedTask]):
     def serialize(self) -> s.CompletedTask:
         return {
             "task": self.task.serialize(),
-            "scheduled": isostringify(self.scheduled),
+            "enqueued": isostringify(self.enqueued),
+            "dequeued": isostringify(self.dequeued),
             "started": isostringify(self.started),
             "completed": isostringify(self.completed),
             "result": self.result,
@@ -213,7 +283,8 @@ class CompletedTask(BaseModel[s.CompletedTask]):
     def deserialize(cls, data: s.CompletedTask) -> Self:
         return cls(
             task=Task.deserialize(data["task"]),
-            scheduled=isoparse(data["scheduled"]),
+            enqueued=isoparse(data["enqueued"]),
+            dequeued=isoparse(data["dequeued"]),
             started=isoparse(data["started"]),
             completed=isoparse(data["completed"]),
             result=data["result"],
@@ -224,7 +295,9 @@ class CompletedTask(BaseModel[s.CompletedTask]):
 class Tasks(BaseModel[s.Tasks]):
     """Tasks data organized by status."""
 
-    pending: dict[UUID, PendingTask]
+    queued: dict[UUID, QueuedTask]
+    waiting: dict[UUID, WaitingTask]
+    sleeping: dict[UUID, SleepingTask]
     running: dict[UUID, RunningTask]
     cancelled: dict[UUID, CancelledTask]
     failed: dict[UUID, FailedTask]
@@ -237,8 +310,14 @@ class Tasks(BaseModel[s.Tasks]):
                 return {str(key): value.serialize() for key, value in data.items()}
 
         return {
-            "pending": Serializer[PendingTask, s.PendingTask]().serialize(
-                self.pending,
+            "queued": Serializer[QueuedTask, s.QueuedTask]().serialize(
+                self.queued,
+            ),
+            "waiting": Serializer[WaitingTask, s.WaitingTask]().serialize(
+                self.waiting,
+            ),
+            "sleeping": Serializer[SleepingTask, s.SleepingTask]().serialize(
+                self.sleeping,
             ),
             "running": Serializer[RunningTask, s.RunningTask]().serialize(
                 self.running,
@@ -268,31 +347,27 @@ class Tasks(BaseModel[s.Tasks]):
                 }
 
         return cls(
-            pending=Deserializer[PendingTask, s.PendingTask](
-                PendingTask,
-            ).deserialize(
-                data["pending"],
-            ),
+            queued=Deserializer[QueuedTask, s.QueuedTask](
+                QueuedTask,
+            ).deserialize(data["queued"]),
+            waiting=Deserializer[WaitingTask, s.WaitingTask](
+                WaitingTask,
+            ).deserialize(data["waiting"]),
+            sleeping=Deserializer[SleepingTask, s.SleepingTask](
+                SleepingTask,
+            ).deserialize(data["sleeping"]),
             running=Deserializer[RunningTask, s.RunningTask](
                 RunningTask,
-            ).deserialize(
-                data["running"],
-            ),
+            ).deserialize(data["running"]),
             cancelled=Deserializer[CancelledTask, s.CancelledTask](
                 CancelledTask,
-            ).deserialize(
-                data["cancelled"],
-            ),
+            ).deserialize(data["cancelled"]),
             failed=Deserializer[FailedTask, s.FailedTask](
                 FailedTask,
-            ).deserialize(
-                data["failed"],
-            ),
+            ).deserialize(data["failed"]),
             completed=Deserializer[CompletedTask, s.CompletedTask](
                 CompletedTask,
-            ).deserialize(
-                data["completed"],
-            ),
+            ).deserialize(data["completed"]),
         )
 
 

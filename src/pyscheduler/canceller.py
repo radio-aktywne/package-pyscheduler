@@ -37,7 +37,8 @@ class Canceller:
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=task.started,
             cancelled=task.cancelled,
         )

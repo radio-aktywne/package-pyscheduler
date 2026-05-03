@@ -38,21 +38,21 @@ class Modifier:
         serialized_state = state.serialize()
         await self._store.set(serialized_state)
 
-    async def add_pending_task(
-        self, task_id: UUID, task: r.Task, scheduled: datetime
-    ) -> r.PendingTask:
-        """Add a task to the state."""
+    async def add_queued_task(
+        self, task_id: UUID, task: r.Task, enqueued: datetime
+    ) -> r.QueuedTask:
+        """Add a queued task to the state."""
         state = await self._get_state()
 
         for dependency in task.dependencies.values():
             if dependency not in state.statuses:
-                raise DependencyNotFoundError(task_id)
+                raise DependencyNotFoundError(dependency)
 
-        pending_task = r.PendingTask(task=task, scheduled=scheduled)
-        state.tasks.pending[task_id] = pending_task
-        state.statuses[task_id] = e.Status.PENDING
+        queued_task = r.QueuedTask(task=task, enqueued=enqueued)
+        state.tasks.queued[task_id] = queued_task
+        state.statuses[task_id] = e.Status.QUEUED
 
-        dependencies = set(pending_task.task.dependencies.values())
+        dependencies = set(queued_task.task.dependencies.values())
 
         if dependencies:
             state.relationships.dependencies[task_id] = dependencies
@@ -65,7 +65,94 @@ class Modifier:
 
         await self._save_state(state)
 
-        return pending_task
+        return queued_task
+
+    async def move_task_to_waiting(
+        self, task_id: UUID, dequeued: datetime
+    ) -> r.WaitingTask:
+        """Move a task to the waiting state."""
+        state = await self._get_state()
+        status = state.statuses.get(task_id)
+
+        if status is None:
+            raise TaskNotFoundError(task_id)
+
+        match status:
+            case e.Status.QUEUED:
+                task = state.tasks.queued.pop(task_id, None)
+            case _:
+                raise TaskStatusError(task_id, status)
+
+        if task is None:
+            raise TaskNotFoundError(task_id)
+
+        task = r.WaitingTask(task=task.task, enqueued=task.enqueued, dequeued=dequeued)
+        state.tasks.waiting[task_id] = task
+        state.statuses[task_id] = e.Status.WAITING
+
+        await self._save_state(state)
+
+        return task
+
+    async def move_task_to_sleeping(
+        self, task_id: UUID, slept: datetime
+    ) -> r.SleepingTask:
+        """Move a task to the sleeping state."""
+        state = await self._get_state()
+        status = state.statuses.get(task_id)
+
+        if status is None:
+            raise TaskNotFoundError(task_id)
+
+        match status:
+            case e.Status.QUEUED:
+                task = state.tasks.queued.pop(task_id, None)
+                dequeued = None
+            case e.Status.WAITING:
+                task = state.tasks.waiting.pop(task_id, None)
+                dequeued = task.dequeued if task is not None else None
+            case _:
+                raise TaskStatusError(task_id, status)
+
+        if task is None:
+            raise TaskNotFoundError(task_id)
+
+        task = r.SleepingTask(
+            task=task.task, enqueued=task.enqueued, dequeued=dequeued, slept=slept
+        )
+        state.tasks.sleeping[task_id] = task
+        state.statuses[task_id] = e.Status.SLEEPING
+
+        await self._save_state(state)
+
+        return task
+
+    async def move_task_to_queued(
+        self, task_id: UUID, enqueued: datetime
+    ) -> r.QueuedTask:
+        """Move a task to the queued state."""
+        state = await self._get_state()
+        status = state.statuses.get(task_id)
+
+        if status is None:
+            raise TaskNotFoundError(task_id)
+
+        match status:
+            case e.Status.SLEEPING:
+                task = state.tasks.sleeping.pop(task_id, None)
+            case _:
+                raise TaskStatusError(task_id, status)
+
+        if task is None:
+            raise TaskNotFoundError(task_id)
+
+        task = r.QueuedTask(task=task.task, enqueued=enqueued)
+        state.tasks.queued[task_id] = task
+        state.statuses[task_id] = e.Status.QUEUED
+
+        await self._save_state(state)
+
+        return task
 
     async def move_task_to_running(
         self, task_id: UUID, started: datetime
@@ -77,15 +164,21 @@ class Modifier:
         if status is None:
             raise TaskNotFoundError(task_id)
 
-        if status != e.Status.PENDING:
-            raise TaskStatusError(task_id, status)
-
-        task = state.tasks.pending.pop(task_id, None)
+        match status:
+            case e.Status.WAITING:
+                task = state.tasks.waiting.pop(task_id, None)
+            case _:
+                raise TaskStatusError(task_id, status)
 
         if task is None:
             raise TaskNotFoundError(task_id)
 
-        task = r.RunningTask(task=task.task, scheduled=task.scheduled, started=started)
+        task = r.RunningTask(
+            task=task.task,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
+            started=started,
+        )
         state.tasks.running[task_id] = task
         state.statuses[task_id] = e.Status.RUNNING
 
@@ -104,8 +197,8 @@ class Modifier:
             raise TaskNotFoundError(task_id)
 
         match status:
-            case e.Status.PENDING:
-                task = state.tasks.pending.pop(task_id, None)
+            case e.Status.WAITING:
+                task = state.tasks.waiting.pop(task_id, None)
                 started = None
             case e.Status.RUNNING:
                 task = state.tasks.running.pop(task_id, None)
@@ -118,7 +211,8 @@ class Modifier:
 
         task = r.CancelledTask(
             task=task.task,
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=started,
             cancelled=cancelled,
         )
@@ -139,18 +233,24 @@ class Modifier:
         if status is None:
             raise TaskNotFoundError(task_id)
 
-        if status != e.Status.RUNNING:
-            raise TaskStatusError(task_id, status)
-
-        task = state.tasks.running.pop(task_id, None)
+        match status:
+            case e.Status.WAITING:
+                task = state.tasks.waiting.pop(task_id, None)
+                started = None
+            case e.Status.RUNNING:
+                task = state.tasks.running.pop(task_id, None)
+                started = task.started if task is not None else None
+            case _:
+                raise TaskStatusError(task_id, status)
 
         if task is None:
             raise TaskNotFoundError(task_id)
 
         task = r.FailedTask(
             task=task.task,
-            scheduled=task.scheduled,
-            started=task.started,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
+            started=started,
             failed=failed,
             error=error,
         )
@@ -171,17 +271,19 @@ class Modifier:
         if status is None:
             raise TaskNotFoundError(task_id)
 
-        if status != e.Status.RUNNING:
-            raise TaskStatusError(task_id, status)
-
-        task = state.tasks.running.pop(task_id, None)
+        match status:
+            case e.Status.RUNNING:
+                task = state.tasks.running.pop(task_id, None)
+            case _:
+                raise TaskStatusError(task_id, status)
 
         if task is None:
             raise TaskNotFoundError(task_id)
 
         task = r.CompletedTask(
             task=task.task,
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=task.started,
             completed=completed,
             result=result,
@@ -212,7 +314,8 @@ class Modifier:
                         ),
                         dependencies=task.task.dependencies,
                     ),
-                    scheduled=task.scheduled,
+                    enqueued=task.enqueued,
+                    dequeued=task.dequeued,
                     started=task.started,
                     cancelled=task.cancelled,
                 )
@@ -231,7 +334,8 @@ class Modifier:
                         ),
                         dependencies=task.task.dependencies,
                     ),
-                    scheduled=task.scheduled,
+                    enqueued=task.enqueued,
+                    dequeued=task.dequeued,
                     started=task.started,
                     failed=task.failed,
                     error=task.error,
@@ -251,7 +355,8 @@ class Modifier:
                         ),
                         dependencies=task.task.dependencies,
                     ),
-                    scheduled=task.scheduled,
+                    enqueued=task.enqueued,
+                    dequeued=task.dequeued,
                     started=task.started,
                     completed=task.completed,
                     result=task.result,
@@ -260,8 +365,7 @@ class Modifier:
                 raise TaskStatusError(task_id, status)
 
     async def remove_stale_tasks(  # noqa: C901
-        self,
-        predicate: RemovePredicate | None = None,
+        self, predicate: RemovePredicate | None = None
     ) -> set[UUID]:
         """Remove finished tasks that are no longer needed."""
 

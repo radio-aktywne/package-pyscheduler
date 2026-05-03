@@ -16,6 +16,7 @@ from pyscheduler.protocols.operation import OperationFactory
 from pyscheduler.protocols.queue import Queue
 from pyscheduler.protocols.store import Store
 from pyscheduler.readers import Reader
+from pyscheduler.recoverer import Recoverer
 from pyscheduler.runner import Runner
 
 
@@ -35,12 +36,14 @@ class Scheduler:
         tasks = Reader(store, lock)
         cache = EventCache(events)
         modifier = Modifier(store)
+        recoverer = Recoverer(store, lock, queue, modifier)
         runner = Runner(store, lock, cache, queue, modifier, operations, conditions)
         adder = Adder(lock, queue, modifier, operations, conditions)
         canceller = Canceller(lock, cache, modifier)
         cleaner = Cleaner(lock, modifier, cleaning)
 
         self._tasks = tasks
+        self._recoverer = recoverer
         self._runner = runner
         self._adder = adder
         self._canceller = canceller
@@ -51,7 +54,7 @@ class Scheduler:
         """Reader for tasks."""
         return self._tasks
 
-    async def schedule(self, request: t.ScheduleRequest) -> t.PendingTask:
+    async def schedule(self, request: t.ScheduleRequest) -> t.QueuedTask:
         """Schedule a task."""
         return await self._adder.add(request)
 
@@ -67,4 +70,5 @@ class Scheduler:
     async def run(self) -> AsyncGenerator[None]:
         """Run in the context."""
         async with self._runner.run():
+            await self._recoverer.recover()
             yield

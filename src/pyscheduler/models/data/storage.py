@@ -18,18 +18,36 @@ class Task(TypedDict):
     dependencies: dict[str, str]
 
 
-class PendingTask(TypedDict):
-    """Data of a pending task."""
+class QueuedTask(TypedDict):
+    """Data of a queued task."""
 
     task: Task
-    scheduled: str
+    enqueued: str
+
+
+class WaitingTask(TypedDict):
+    """Data of a waiting task."""
+
+    task: Task
+    enqueued: str
+    dequeued: str
+
+
+class SleepingTask(TypedDict):
+    """Data of a sleeping task."""
+
+    task: Task
+    enqueued: str
+    dequeued: str | None
+    slept: str
 
 
 class RunningTask(TypedDict):
     """Data of a running task."""
 
     task: Task
-    scheduled: str
+    enqueued: str
+    dequeued: str
     started: str
 
 
@@ -37,7 +55,8 @@ class CancelledTask(TypedDict):
     """Data of a cancelled task."""
 
     task: Task
-    scheduled: str
+    enqueued: str
+    dequeued: str
     started: str | None
     cancelled: str
 
@@ -46,8 +65,9 @@ class FailedTask(TypedDict):
     """Data of a failed task."""
 
     task: Task
-    scheduled: str
-    started: str
+    enqueued: str
+    dequeued: str
+    started: str | None
     failed: str
     error: str
 
@@ -56,7 +76,8 @@ class CompletedTask(TypedDict):
     """Data of a completed task."""
 
     task: Task
-    scheduled: str
+    enqueued: str
+    dequeued: str
     started: str
     completed: str
     result: t.JSON
@@ -65,7 +86,9 @@ class CompletedTask(TypedDict):
 class Tasks(TypedDict):
     """Tasks data organized by status."""
 
-    pending: dict[str, PendingTask]
+    queued: dict[str, QueuedTask]
+    waiting: dict[str, WaitingTask]
+    sleeping: dict[str, SleepingTask]
     running: dict[str, RunningTask]
     cancelled: dict[str, CancelledTask]
     failed: dict[str, FailedTask]
