@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID, uuid4
 
 from pyscheduler.errors import InvalidConditionError, InvalidOperationError
@@ -28,7 +29,7 @@ class Adder:
         self._operations = operations
         self._conditions = conditions
 
-    async def add(self, request: t.ScheduleRequest) -> t.PendingTask:
+    async def add(self, request: t.ScheduleRequest) -> t.QueuedTask:
         """Add a task."""
         operation = await self._operations.create(request.operation.type)
         if operation is None:
@@ -42,21 +43,24 @@ class Adder:
 
         task = r.Task(
             operation=r.Specification(
-                type=request.operation.type,
-                parameters=request.operation.parameters,
+                type=request.operation.type, parameters=request.operation.parameters
             ),
             condition=r.Specification(
-                type=request.condition.type,
-                parameters=request.condition.parameters,
+                type=request.condition.type, parameters=request.condition.parameters
             ),
             dependencies=request.dependencies,
         )
 
         async with self._lock:
-            task = await self._modifier.add_pending_task(task_id, task, awareutcnow())
-            await self._queue.put(task_id)
+            task = await self._modifier.add_queued_task(task_id, task, awareutcnow())
 
-        return t.PendingTask(
+            try:
+                await self._queue.put(task_id)
+            except (asyncio.CancelledError, Exception):
+                await self._modifier.move_task_to_sleeping(task_id, awareutcnow())
+                raise
+
+        return t.QueuedTask(
             task=t.Task(
                 id=task_id,
                 operation=t.Specification(
@@ -69,5 +73,5 @@ class Adder:
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
         )

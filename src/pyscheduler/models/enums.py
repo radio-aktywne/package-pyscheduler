@@ -4,7 +4,9 @@ from enum import StrEnum
 class Status(StrEnum):
     """Status of a task."""
 
-    PENDING = "pending"
+    QUEUED = "queued"
+    WAITING = "waiting"
+    SLEEPING = "sleeping"
     RUNNING = "running"
     CANCELLED = "cancelled"
     FAILED = "failed"

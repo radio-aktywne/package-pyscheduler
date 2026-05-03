@@ -51,7 +51,9 @@ class Task:
 class TaskIndex:
     """Index of tasks by status."""
 
-    pending: set[UUID]
+    queued: set[UUID]
+    waiting: set[UUID]
+    sleeping: set[UUID]
     running: set[UUID]
     cancelled: set[UUID]
     failed: set[UUID]
@@ -67,11 +69,30 @@ class GenericTask:
 
 
 @dataclass(kw_only=True)
-class PendingTask:
-    """Data of a pending task."""
+class QueuedTask:
+    """Data of a queued task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+
+
+@dataclass(kw_only=True)
+class WaitingTask:
+    """Data of a waiting task."""
+
+    task: Task
+    enqueued: datetime
+    dequeued: datetime
+
+
+@dataclass(kw_only=True)
+class SleepingTask:
+    """Data of a sleeping task."""
+
+    task: Task
+    enqueued: datetime
+    dequeued: datetime | None
+    slept: datetime
 
 
 @dataclass(kw_only=True)
@@ -79,7 +100,8 @@ class RunningTask:
     """Data of a running task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+    dequeued: datetime
     started: datetime
 
 
@@ -88,7 +110,8 @@ class CancelledTask:
     """Data of a cancelled task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+    dequeued: datetime
     started: datetime | None
     cancelled: datetime
 
@@ -98,8 +121,9 @@ class FailedTask:
     """Data of a failed task."""
 
     task: Task
-    scheduled: datetime
-    started: datetime
+    enqueued: datetime
+    dequeued: datetime
+    started: datetime | None
     failed: datetime
     error: str
 
@@ -109,7 +133,8 @@ class CompletedTask:
     """Data of a completed task."""
 
     task: Task
-    scheduled: datetime
+    enqueued: datetime
+    dequeued: datetime
     started: datetime
     completed: datetime
     result: JSON

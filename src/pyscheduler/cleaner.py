@@ -9,10 +9,7 @@ class Cleaner:
     """Cleans scheduler state."""
 
     def __init__(
-        self,
-        lock: Lock,
-        modifier: Modifier,
-        cleaning: CleaningStrategyFactory,
+        self, lock: Lock, modifier: Modifier, cleaning: CleaningStrategyFactory
     ) -> None:
         self._lock = lock
         self._modifier = modifier

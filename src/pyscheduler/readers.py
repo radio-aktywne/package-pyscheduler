@@ -23,18 +23,18 @@ class BaseReader:
         return r.State.deserialize(state)
 
 
-class PendingTasksReader(BaseReader):
-    """Reader for pending tasks."""
+class QueuedTasksReader(BaseReader):
+    """Reader for queued tasks."""
 
-    async def get(self, task_id: UUID) -> t.PendingTask | None:
-        """Get a pending task by id."""
+    async def get(self, task_id: UUID) -> t.QueuedTask | None:
+        """Get a queued task by id."""
         state = await self._get_state()
-        task = state.tasks.pending.get(task_id)
+        task = state.tasks.queued.get(task_id)
 
         if task is None:
             return None
 
-        return t.PendingTask(
+        return t.QueuedTask(
             task=t.Task(
                 id=task_id,
                 operation=t.Specification(
@@ -47,7 +47,66 @@ class PendingTasksReader(BaseReader):
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+        )
+
+
+class WaitingTasksReader(BaseReader):
+    """Reader for waiting tasks."""
+
+    async def get(self, task_id: UUID) -> t.WaitingTask | None:
+        """Get a waiting task by id."""
+        state = await self._get_state()
+        task = state.tasks.waiting.get(task_id)
+
+        if task is None:
+            return None
+
+        return t.WaitingTask(
+            task=t.Task(
+                id=task_id,
+                operation=t.Specification(
+                    type=task.task.operation.type,
+                    parameters=task.task.operation.parameters,
+                ),
+                condition=t.Specification(
+                    type=task.task.condition.type,
+                    parameters=task.task.condition.parameters,
+                ),
+                dependencies=task.task.dependencies,
+            ),
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
+        )
+
+
+class SleepingTasksReader(BaseReader):
+    """Reader for sleeping tasks."""
+
+    async def get(self, task_id: UUID) -> t.SleepingTask | None:
+        """Get a sleeping task by id."""
+        state = await self._get_state()
+        task = state.tasks.sleeping.get(task_id)
+
+        if task is None:
+            return None
+
+        return t.SleepingTask(
+            task=t.Task(
+                id=task_id,
+                operation=t.Specification(
+                    type=task.task.operation.type,
+                    parameters=task.task.operation.parameters,
+                ),
+                condition=t.Specification(
+                    type=task.task.condition.type,
+                    parameters=task.task.condition.parameters,
+                ),
+                dependencies=task.task.dependencies,
+            ),
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
+            slept=task.slept,
         )
 
 
@@ -75,7 +134,8 @@ class RunningTasksReader(BaseReader):
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=task.started,
         )
 
@@ -104,7 +164,8 @@ class CancelledTasksReader(BaseReader):
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=task.started,
             cancelled=task.cancelled,
         )
@@ -134,7 +195,8 @@ class FailedTasksReader(BaseReader):
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=task.started,
             failed=task.failed,
             error=task.error,
@@ -165,7 +227,8 @@ class CompletedTasksReader(BaseReader):
                 ),
                 dependencies=task.task.dependencies,
             ),
-            scheduled=task.scheduled,
+            enqueued=task.enqueued,
+            dequeued=task.dequeued,
             started=task.started,
             completed=task.completed,
             result=task.result,
@@ -177,16 +240,28 @@ class Reader(BaseReader):
 
     def __init__(self, store: Store[s.State], lock: Lock) -> None:
         super().__init__(store, lock)
-        self._pending = PendingTasksReader(store, lock)
+        self._queued = QueuedTasksReader(store, lock)
+        self._waiting = WaitingTasksReader(store, lock)
+        self._sleeping = SleepingTasksReader(store, lock)
         self._running = RunningTasksReader(store, lock)
         self._cancelled = CancelledTasksReader(store, lock)
         self._failed = FailedTasksReader(store, lock)
         self._completed = CompletedTasksReader(store, lock)
 
     @property
-    def pending(self) -> PendingTasksReader:
-        """Reader for pending tasks."""
-        return self._pending
+    def queued(self) -> QueuedTasksReader:
+        """Reader for queued tasks."""
+        return self._queued
+
+    @property
+    def waiting(self) -> WaitingTasksReader:
+        """Reader for waiting tasks."""
+        return self._waiting
+
+    @property
+    def sleeping(self) -> SleepingTasksReader:
+        """Reader for sleeping tasks."""
+        return self._sleeping
 
     @property
     def running(self) -> RunningTasksReader:
@@ -213,21 +288,29 @@ class Reader(BaseReader):
         state = await self._get_state()
 
         return t.TaskIndex(
-            pending=set(state.tasks.pending.keys()),
+            queued=set(state.tasks.queued.keys()),
+            waiting=set(state.tasks.waiting.keys()),
+            sleeping=set(state.tasks.sleeping.keys()),
             running=set(state.tasks.running.keys()),
             cancelled=set(state.tasks.cancelled.keys()),
             failed=set(state.tasks.failed.keys()),
             completed=set(state.tasks.completed.keys()),
         )
 
-    async def get(self, task_id: UUID) -> t.GenericTask | None:
+    async def get(self, task_id: UUID) -> t.GenericTask | None:  # noqa: PLR0911
         """Get a task by id."""
         state = await self._get_state()
         status = state.statuses.get(task_id)
 
         match status:
-            case e.Status.PENDING:
-                task = await self._pending.get(task_id)
+            case e.Status.QUEUED:
+                task = await self._queued.get(task_id)
+                return t.GenericTask(task=task.task, status=status) if task else None
+            case e.Status.WAITING:
+                task = await self._waiting.get(task_id)
+                return t.GenericTask(task=task.task, status=status) if task else None
+            case e.Status.SLEEPING:
+                task = await self._sleeping.get(task_id)
                 return t.GenericTask(task=task.task, status=status) if task else None
             case e.Status.RUNNING:
                 task = await self._running.get(task_id)
