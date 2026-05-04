@@ -23,13 +23,15 @@ class Recoverer:
 
     async def recover(self) -> None:
         """Recover tasks."""
-        async with self._lock:
-            state = await self._store.get()
-
-        state = r.State.deserialize(state)
-
-        for task_id in state.tasks.sleeping:
+        while True:
             async with self._lock:
+                state = await self._store.get()
+                state = r.State.deserialize(state)
+
+                if not state.tasks.sleeping:
+                    break
+
+                task_id = next(iter(state.tasks.sleeping.keys()))
                 await self._modifier.move_task_to_queued(task_id, awareutcnow())
 
                 try:
